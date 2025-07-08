@@ -1,6 +1,5 @@
-
 import { useEffect, useRef, useState } from 'react';
-import { Shield } from 'lucide-react';
+import { Shield, Move } from 'lucide-react';
 
 interface SecuritySystemProps {
   onAlert: (message: string) => void;
@@ -10,6 +9,12 @@ const SecuritySystem = ({ onAlert }: SecuritySystemProps) => {
   const [isActive, setIsActive] = useState(true);
   const tabSwitchCount = useRef(0);
   const lastVisibilityChange = useRef(Date.now());
+  
+  // Drag state
+  const [position, setPosition] = useState({ x: 16, y: 16 }); // top-4 left-4 = 16px
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const securityRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Disable right-click context menu
@@ -147,17 +152,71 @@ const SecuritySystem = ({ onAlert }: SecuritySystemProps) => {
     };
   }, [onAlert]);
 
+  // Drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!securityRef.current) return;
+    
+    const rect = securityRef.current.getBoundingClientRect();
+    setDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    });
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+    
+    const newX = e.clientX - dragOffset.x;
+    const newY = e.clientY - dragOffset.y;
+    
+    // Keep within viewport bounds
+    const maxX = window.innerWidth - (securityRef.current?.offsetWidth || 120);
+    const maxY = window.innerHeight - (securityRef.current?.offsetHeight || 60);
+    
+    setPosition({
+      x: Math.max(0, Math.min(newX, maxX)),
+      y: Math.max(0, Math.min(newY, maxY))
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, dragOffset]);
+
   return (
-    <div className="fixed top-4 left-4 z-50">
-      <div className="bg-gray-800 rounded-lg p-2 border border-gray-600">
-        <div className="flex items-center space-x-2">
-          <Shield className={`h-4 w-4 ${isActive ? 'text-green-400' : 'text-red-400'}`} />
-          <span className="text-xs text-gray-300">Security Active</span>
-          <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-400' : 'bg-red-400'}`} />
+    <div 
+      ref={securityRef}
+      className="fixed z-50 cursor-move select-none"
+      style={{
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        userSelect: isDragging ? 'none' : 'auto'
+      }}
+      onMouseDown={handleMouseDown}
+    >
+      <div className="bg-gray-800 rounded-lg p-1.5 sm:p-2 border border-gray-600">
+        <div className="flex items-center space-x-1.5 sm:space-x-2">
+          <Shield className={`h-3 w-3 sm:h-4 sm:w-4 ${isActive ? 'text-green-400' : 'text-red-400'}`} />
+          <span className="text-xs text-gray-300">Security</span>
+          <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${isActive ? 'bg-green-400' : 'bg-red-400'}`} />
+          <Move className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-gray-500 opacity-60" />
         </div>
         
         <div className="text-xs text-gray-400 mt-1">
-          Monitoring: {tabSwitchCount.current} violations
+          {tabSwitchCount.current} violations
         </div>
       </div>
     </div>
