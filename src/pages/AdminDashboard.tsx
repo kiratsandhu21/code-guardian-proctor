@@ -145,6 +145,8 @@ const AdminDashboard = () => {
   });
   const [testCode, setTestCode] = useState<string>('');
   const [showTestCode, setShowTestCode] = useState(false);
+  const [isCreatingTest, setIsCreatingTest] = useState(false);
+  const [createTestError, setCreateTestError] = useState<string | null>(null);
 
   const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
     eyeTracking: true,
@@ -205,58 +207,184 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     const fetchQuestions = async () => {
-      const { data, error } = await supabase.from('questions').select('*');
-      if (!error && data) setQuestions(data);
+      try {
+        const { data, error } = await supabase.from('questions').select('*');
+        if (error) {
+          console.error('Error fetching questions:', error);
+          return;
+        }
+        if (data) {
+          setQuestions(data.map(q => ({
+            ...q,
+            constraints: Array.isArray(q.constraints) ? q.constraints : [],
+            testCases: Array.isArray(q.test_cases) ? q.test_cases : []
+          })));
+        }
+      } catch (err) {
+        console.error('Failed to fetch questions:', err);
+      }
     };
+    
     const fetchTests = async () => {
-      const { data, error } = await supabase.from('tests').select('*');
-      if (!error && data) setTests(data);
+      try {
+        const { data, error } = await supabase
+          .from('tests')
+          .select(`
+            *,
+            test_questions(
+              question_id,
+              questions(*)
+            )
+          `);
+        if (error) {
+          console.error('Error fetching tests:', error);
+          return;
+        }
+        if (data) {
+          const formattedTests = data.map(test => ({
+            ...test,
+            questions: test.test_questions?.map((tq: any) => tq.questions) || [],
+            isLive: test.is_live || false,
+            createdAt: new Date(test.created_at),
+            expiresAt: test.expires_at ? new Date(test.expires_at) : undefined
+          }));
+          setTests(formattedTests);
+        }
+      } catch (err) {
+        console.error('Failed to fetch tests:', err);
+      }
     };
+    
     fetchQuestions();
     fetchTests();
   }, []);
 
   const createTest = async () => {
     if (!newTest.name || newTest.selectedQuestions.length === 0) {
-      alert('Please provide a test name and select at least one question.');
+      setCreateTestError('Please provide a test name and select at least one question.');
+      setTimeout(() => setCreateTestError(null), 3000);
       return;
     }
-    const testCode = generateTestCode();
-    const { data, error } = await supabase.from('tests').insert([{
-      name: newTest.name,
-      code: testCode,
-      status: 'draft',
-      duration: newTest.duration,
-      question_ids: newTest.selectedQuestions, // store as array of question IDs
-      is_live: false
-    }]);
-    if (error) {
-      alert('Failed to create test.');
-      return;
+    
+    setIsCreatingTest(true);
+    setCreateTestError(null);
+    
+    try {
+      const testCode = generateTestCode();
+      
+      // Create the test
+      const { data: testData, error: testError } = await supabase
+        .from('tests')
+        .insert([{
+          name: newTest.name,
+          code: testCode,
+          status: 'draft',
+          duration: newTest.duration,
+          is_live: false
+        }])
+        .select()
+        .single();
+      
+      if (testError) {
+        throw new Error('Failed to create test: ' + testError.message);
+      }
+      
+      // Create test-question relationships
+      const testQuestionData = newTest.selectedQuestions.map(questionId => ({
+        test_id: testData.id,
+        question_id: questionId
+      }));
+      
+      const { error: relationError } = await supabase
+        .from('test_questions')
+        .insert(testQuestionData);
+      
+      if (relationError) {
+        throw new Error('Failed to link questions to test: ' + relationError.message);
+      }
+      
+      // Reset form
+      setNewTest({ name: '', duration: 60, selectedQuestions: [] });
+      
+      // Show success message
+      alert(`Test "${newTest.name}" created successfully with code: ${testCode}`);
+      
+      // Re-fetch tests
+      const { data: newData } = await supabase
+        .from('tests')
+        .select(`
+          *,
+          test_questions(
+            question_id,
+            questions(*)
+          )
+        `);
+      
+      if (newData) {
+        const formattedTests = newData.map(test => ({
+          ...test,
+          questions: test.test_questions?.map((tq: any) => tq.questions) || [],
+          isLive: test.is_live || false,
+          createdAt: new Date(test.created_at),
+          expiresAt: test.expires_at ? new Date(test.expires_at) : undefined
+        }));
+        setTests(formattedTests);
+      }
+      
+    } catch (err) {
+      setCreateTestError(err instanceof Error ? err.message : 'Failed to create test');
+      setTimeout(() => setCreateTestError(null), 5000);
+    } finally {
+      setIsCreatingTest(false);
     }
-    setNewTest({ name: '', duration: 60, selectedQuestions: [] });
-    alert(`Test "${newTest.name}" created with code: ${testCode}`);
-    // Re-fetch tests
-    const { data: newData } = await supabase.from('tests').select('*');
-    if (newData) setTests(newData);
   };
 
   const goLive = async (testId: string) => {
     const test = tests.find(t => t.id === testId);
     if (!test) return;
-    const { data, error } = await supabase
-      .from('tests')
-      .update({ is_live: true, status: 'live' })
-      .eq('id', testId);
-    if (error) {
-      alert('Failed to go live.');
-      return;
+    
+    try {
+      const { error } = await supabase
+        .from('tests')
+        .update({ 
+          is_live: true, 
+          status: 'live',
+          expires_at: new Date(Date.now() + test.duration * 60 * 1000).toISOString()
+        })
+        .eq('id', testId);
+      
+      if (error) {
+        throw new Error('Failed to go live: ' + error.message);
+      }
+      
+      setTestCode(test.code);
+      setShowTestCode(true);
+      
+      // Re-fetch tests
+      const { data: newData } = await supabase
+        .from('tests')
+        .select(`
+          *,
+          test_questions(
+            question_id,
+            questions(*)
+          )
+        `);
+      
+      if (newData) {
+        const formattedTests = newData.map(test => ({
+          ...test,
+          questions: test.test_questions?.map((tq: any) => tq.questions) || [],
+          isLive: test.is_live || false,
+          createdAt: new Date(test.created_at),
+          expiresAt: test.expires_at ? new Date(test.expires_at) : undefined
+        }));
+        setTests(formattedTests);
+      }
+      
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to go live');
     }
-    setTestCode(test.code);
-    setShowTestCode(true);
-    // Re-fetch tests
-    const { data: newData } = await supabase.from('tests').select('*');
-    if (newData) setTests(newData);
   };
 
   const copyTestCode = () => {
@@ -278,25 +406,39 @@ const AdminDashboard = () => {
       setTimeout(() => setAddQuestionError(null), 3000);
       return;
     }
-    const { data, error } = await supabase.from('questions').insert([{
-      title: newQuestion.title,
-      difficulty: newQuestion.difficulty,
-      description: newQuestion.description,
-      constraints: newQuestion.constraints ? newQuestion.constraints.split('\n').filter(c => c.trim()) : [],
-      test_cases: newQuestion.testInput && newQuestion.testOutput ? [{ input: newQuestion.testInput, output: newQuestion.testOutput }] : [],
-      source: 'custom'
-    }]);
-    if (error) {
-      setAddQuestionError('Failed to add question.');
+    
+    try {
+      const { error } = await supabase.from('questions').insert([{
+        title: newQuestion.title,
+        difficulty: newQuestion.difficulty,
+        description: newQuestion.description,
+        constraints: newQuestion.constraints ? newQuestion.constraints.split('\n').filter(c => c.trim()) : [],
+        test_cases: newQuestion.testInput && newQuestion.testOutput ? [{ input: newQuestion.testInput, output: newQuestion.testOutput }] : [],
+        source: 'custom'
+      }]);
+      
+      if (error) {
+        throw new Error('Failed to add question: ' + error.message);
+      }
+      
+      setAddQuestionSuccess('Question added successfully!');
+      setNewQuestion({ title: '', difficulty: 'Easy', description: '', constraints: '', testInput: '', testOutput: '' });
+      setTimeout(() => setAddQuestionSuccess(null), 3000);
+      
+      // Re-fetch questions
+      const { data: newData } = await supabase.from('questions').select('*');
+      if (newData) {
+        setQuestions(newData.map(q => ({
+          ...q,
+          constraints: Array.isArray(q.constraints) ? q.constraints : [],
+          testCases: Array.isArray(q.test_cases) ? q.test_cases : []
+        })));
+      }
+      
+    } catch (err) {
+      setAddQuestionError(err instanceof Error ? err.message : 'Failed to add question');
       setTimeout(() => setAddQuestionError(null), 3000);
-      return;
     }
-    setAddQuestionSuccess('Question added successfully!');
-    setNewQuestion({ title: '', difficulty: 'Easy', description: '', constraints: '', testInput: '', testOutput: '' });
-    setTimeout(() => setAddQuestionSuccess(null), 3000);
-    // Re-fetch questions
-    const { data: newData } = await supabase.from('questions').select('*');
-    if (newData) setQuestions(newData);
   };
 
   const deleteQuestion = (id: string) => {
@@ -685,6 +827,12 @@ const AdminDashboard = () => {
                   <CardTitle className="text-base sm:text-lg">Create New Test</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 sm:space-y-4">
+                  {createTestError && (
+                    <Alert className="bg-red-50 border-red-200 text-red-800 text-xs sm:text-sm">
+                      <AlertDescription>{createTestError}</AlertDescription>
+                    </Alert>
+                  )}
+                  
                   <div>
                     <Label htmlFor="testName" className="text-xs sm:text-sm">Test Name</Label>
                     <Input
@@ -742,10 +890,11 @@ const AdminDashboard = () => {
                   
                   <Button 
                     onClick={createTest}
+                    disabled={isCreatingTest}
                     className="w-full text-xs sm:text-sm"
                   >
                     <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                    Create Test
+                    {isCreatingTest ? 'Creating...' : 'Create Test'}
                   </Button>
                 </CardContent>
               </Card>

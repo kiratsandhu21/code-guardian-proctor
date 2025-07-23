@@ -14,8 +14,9 @@ import { Camera, Monitor, Send, Play, Code, Menu, X } from "lucide-react";
 const ExamPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  // Get studentEmail from URL or sessionStorage
+  // Get studentEmail and testCode from URL or sessionStorage
   const studentEmail = searchParams.get('studentEmail') || sessionStorage.getItem('studentEmail');
+  const testCodeFromUrl = searchParams.get('testCode');
   const [code, setCode] = useState('// Write your solution here\nfunction solution() {\n    \n}');
   const [language, setLanguage] = useState('javascript');
   const [output, setOutput] = useState('');
@@ -27,6 +28,9 @@ const ExamPage = () => {
   const [showProblem, setShowProblem] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   
+  // Test and problem state
+  const [currentTest, setCurrentTest] = useState<any>(null);
+  const [currentProblem, setCurrentProblem] = useState<any>(null);
   // Resizable partition state
   const [partitionPosition, setPartitionPosition] = useState(50); // 50% default
   const [isResizing, setIsResizing] = useState(false);
@@ -102,7 +106,7 @@ public:
   };
 
   // Sample coding problem
-  const problem = {
+  const defaultProblem = {
     title: "Two Sum",
     difficulty: "Easy",
     description: `Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.
@@ -123,11 +127,55 @@ Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].`,
     ]
   };
 
+  // Use current problem from test or default problem
+  const problem = currentProblem || defaultProblem;
+
   useEffect(() => {
     if (!studentEmail) {
       navigate('/');
       return;
     }
+
+    // Fetch test data if testCode is provided
+    const fetchTestData = async () => {
+      if (testCodeFromUrl) {
+        try {
+          const { data: testData, error } = await supabase
+            .from('tests')
+            .select(`
+              *,
+              test_questions(
+                question_id,
+                questions(*)
+              )
+            `)
+            .eq('code', testCodeFromUrl)
+            .eq('is_live', true)
+            .single();
+          
+          if (error || !testData) {
+            addAlert('Invalid or expired test code');
+            setTimeout(() => navigate('/'), 3000);
+            return;
+          }
+          
+          setCurrentTest(testData);
+          // Set the first question as current problem
+          if (testData.test_questions && testData.test_questions.length > 0) {
+            setCurrentProblem(testData.test_questions[0].questions);
+          }
+          
+          // Set timer based on test duration
+          setTimeRemaining(testData.duration * 60);
+          
+        } catch (err) {
+          console.error('Error fetching test data:', err);
+          addAlert('Failed to load test data');
+        }
+      }
+    };
+
+    fetchTestData();
 
     // Check if mobile
     const checkMobile = () => {

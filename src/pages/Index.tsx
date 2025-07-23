@@ -21,6 +21,7 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const [testCodeInput, setTestCodeInput] = useState('');
   const [showRegister, setShowRegister] = useState(false);
   const [registerData, setRegisterData] = useState({
     studentId: '',
@@ -81,8 +82,8 @@ const Index = () => {
       
       const params = new URLSearchParams();
       params.append('studentEmail', loginEmail);
-      if (testCode.trim()) {
-        params.append('testCode', testCode.trim());
+      if (testCodeInput.trim()) {
+        params.append('testCode', testCodeInput.trim());
       }
       navigate(`/exam?${params.toString()}`);
 
@@ -338,6 +339,16 @@ const Index = () => {
                             value={loginPassword}
                             onChange={(e) => setLoginPassword(e.target.value)}
                             onKeyPress={(e) => e.key === 'Enter' && handleStudentLogin()}
+                            className="mt-1 h-9 sm:h-10"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="testCode" className="text-sm sm:text-base">Test Code (Optional)</Label>
+                          <Input
+                            id="testCode"
+                            placeholder="Enter test code if provided"
+                            value={testCodeInput}
+                            onChange={(e) => setTestCodeInput(e.target.value)}
                             className="mt-1 h-9 sm:h-10"
                           />
                         </div>
