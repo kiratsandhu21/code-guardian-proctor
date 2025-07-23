@@ -29,7 +29,7 @@ import {
   CheckCircle,
   Clock
 } from "lucide-react";
-import supabase from '../supabaseClient'; // adjust path if needed
+import { supabase } from '../supabaseClient'; // adjust path if needed
 
 interface Student {
   id: string;
