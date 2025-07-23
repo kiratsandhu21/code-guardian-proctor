@@ -14,7 +14,8 @@ import { Camera, Monitor, Send, Play, Code, Menu, X } from "lucide-react";
 const ExamPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const studentId = searchParams.get('studentId');
+  // Get studentEmail from URL or sessionStorage
+  const studentEmail = searchParams.get('studentEmail') || sessionStorage.getItem('studentEmail');
   const [code, setCode] = useState('// Write your solution here\nfunction solution() {\n    \n}');
   const [language, setLanguage] = useState('javascript');
   const [output, setOutput] = useState('');
@@ -123,7 +124,7 @@ Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].`,
   };
 
   useEffect(() => {
-    if (!studentId) {
+    if (!studentEmail) {
       navigate('/');
       return;
     }
@@ -165,7 +166,7 @@ Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].`,
       clearInterval(timer);
       window.removeEventListener('resize', checkMobile);
     };
-  }, [studentId, navigate]);
+  }, [studentEmail, navigate]);
 
   const addAlert = (message: string) => {
     setAlerts(prev => [...prev, `${new Date().toLocaleTimeString()}: ${message}`]);
@@ -518,7 +519,7 @@ Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].`,
             <span className="font-semibold text-sm sm:text-base">ProctorCode Exam</span>
           </div>
           <Badge variant="outline" className="text-blue-400 border-blue-400 text-xs sm:text-sm">
-            Student: {studentId}
+            Student: {studentEmail}
           </Badge>
         </div>
         
@@ -543,6 +544,21 @@ Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].`,
           >
             <Send className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
             Submit
+          </Button>
+          {/* Exit Button */}
+          <Button
+            onClick={() => {
+              if (document.fullscreenElement) {
+                document.exitFullscreen();
+              }
+              navigate('/');
+            }}
+            className="bg-red-600 hover:bg-red-700 text-xs sm:text-sm ml-1"
+            size="sm"
+            variant="outline"
+          >
+            <X className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+            Exit
           </Button>
         </div>
       </div>

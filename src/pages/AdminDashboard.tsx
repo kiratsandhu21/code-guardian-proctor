@@ -29,6 +29,7 @@ import {
   CheckCircle,
   Clock
 } from "lucide-react";
+import supabase from '../supabaseClient'; // adjust path if needed
 
 interface Student {
   id: string;
@@ -134,36 +135,7 @@ const AdminDashboard = () => {
     }
   ]);
 
-  const [questions, setQuestions] = useState<Question[]>([
-    {
-      id: '1',
-      title: 'Two Sum',
-      difficulty: 'Easy',
-      description: 'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.',
-      constraints: ['2 ≤ nums.length ≤ 10^4', '-10^9 ≤ nums[i] ≤ 10^9'],
-      testCases: [{ input: 'nums = [2,7,11,15], target = 9', output: '[0,1]' }],
-      source: 'leetcode'
-    },
-    {
-      id: '2',
-      title: 'Reverse String',
-      difficulty: 'Easy',
-      description: 'Write a function that reverses a string. The input string is given as an array of characters s.',
-      constraints: ['1 ≤ s.length ≤ 10^5', 's[i] is a printable ascii character'],
-      testCases: [{ input: 's = ["h","e","l","l","o"]', output: '["o","l","l","e","h"]' }],
-      source: 'leetcode'
-    },
-    {
-      id: '3',
-      title: 'Valid Parentheses',
-      difficulty: 'Easy',
-      description: 'Given a string s containing just the characters "(", ")", "{", "}", "[" and "]", determine if the input string is valid.',
-      constraints: ['1 ≤ s.length ≤ 10^4', 's consists of parentheses only "()[]{}"'],
-      testCases: [{ input: 's = "()"', output: 'true' }],
-      source: 'leetcode'
-    }
-  ]);
-
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [tests, setTests] = useState<Test[]>([]);
   const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
   const [newTest, setNewTest] = useState({
@@ -231,37 +203,60 @@ const AdminDashboard = () => {
     return result;
   };
 
-  const createTest = () => {
+  useEffect(() => {
+    const fetchQuestions = async () => {
+      const { data, error } = await supabase.from('questions').select('*');
+      if (!error && data) setQuestions(data);
+    };
+    const fetchTests = async () => {
+      const { data, error } = await supabase.from('tests').select('*');
+      if (!error && data) setTests(data);
+    };
+    fetchQuestions();
+    fetchTests();
+  }, []);
+
+  const createTest = async () => {
     if (!newTest.name || newTest.selectedQuestions.length === 0) {
       alert('Please provide a test name and select at least one question.');
       return;
     }
-
     const testCode = generateTestCode();
-    const test: Test = {
-      id: Date.now().toString(),
+    const { data, error } = await supabase.from('tests').insert([{
       name: newTest.name,
       code: testCode,
-      questions: questions.filter(q => newTest.selectedQuestions.includes(q.id)),
+      status: 'draft',
       duration: newTest.duration,
-      isLive: false,
-      createdAt: new Date()
-    };
-
-    setTests(prev => [...prev, test]);
+      question_ids: newTest.selectedQuestions, // store as array of question IDs
+      is_live: false
+    }]);
+    if (error) {
+      alert('Failed to create test.');
+      return;
+    }
     setNewTest({ name: '', duration: 60, selectedQuestions: [] });
-    alert(`Test "${test.name}" created with code: ${testCode}`);
+    alert(`Test "${newTest.name}" created with code: ${testCode}`);
+    // Re-fetch tests
+    const { data: newData } = await supabase.from('tests').select('*');
+    if (newData) setTests(newData);
   };
 
-  const goLive = (testId: string) => {
-    setTests(prev => prev.map(test => 
-      test.id === testId ? { ...test, isLive: true } : test
-    ));
+  const goLive = async (testId: string) => {
     const test = tests.find(t => t.id === testId);
-    if (test) {
-      setTestCode(test.code);
-      setShowTestCode(true);
+    if (!test) return;
+    const { data, error } = await supabase
+      .from('tests')
+      .update({ is_live: true, status: 'live' })
+      .eq('id', testId);
+    if (error) {
+      alert('Failed to go live.');
+      return;
     }
+    setTestCode(test.code);
+    setShowTestCode(true);
+    // Re-fetch tests
+    const { data: newData } = await supabase.from('tests').select('*');
+    if (newData) setTests(newData);
   };
 
   const copyTestCode = () => {
@@ -277,46 +272,31 @@ const AdminDashboard = () => {
     }
   };
 
-  const addQuestion = () => {
+  const addQuestion = async () => {
     if (!newQuestion.title || !newQuestion.description) {
       setAddQuestionError('Title and description are required.');
       setTimeout(() => setAddQuestionError(null), 3000);
       return;
     }
-    const duplicate = questions.some(
-      q => q.title.trim().toLowerCase() === newQuestion.title.trim().toLowerCase()
-    );
-    if (duplicate) {
-      setAddQuestionError('A question with this title already exists.');
+    const { data, error } = await supabase.from('questions').insert([{
+      title: newQuestion.title,
+      difficulty: newQuestion.difficulty,
+      description: newQuestion.description,
+      constraints: newQuestion.constraints ? newQuestion.constraints.split('\n').filter(c => c.trim()) : [],
+      test_cases: newQuestion.testInput && newQuestion.testOutput ? [{ input: newQuestion.testInput, output: newQuestion.testOutput }] : [],
+      source: 'custom'
+    }]);
+    if (error) {
+      setAddQuestionError('Failed to add question.');
       setTimeout(() => setAddQuestionError(null), 3000);
       return;
     }
-
-    setIsAddingQuestion(true);
-    setTimeout(() => {
-      const question: Question = {
-        id: Date.now().toString(),
-        title: newQuestion.title,
-        difficulty: newQuestion.difficulty,
-        description: newQuestion.description,
-        constraints: newQuestion.constraints ? newQuestion.constraints.split('\n').filter(c => c.trim()) : [],
-        testCases: newQuestion.testInput && newQuestion.testOutput ? [{ input: newQuestion.testInput, output: newQuestion.testOutput }] : [],
-        source: 'custom'
-      };
-      
-      setQuestions(prev => [...prev, question]);
-      setNewQuestion({
-        title: '',
-        difficulty: 'Easy',
-        description: '',
-        constraints: '',
-        testInput: '',
-        testOutput: ''
-      });
-      setAddQuestionSuccess('Question added successfully!');
-      setIsAddingQuestion(false);
-      setTimeout(() => setAddQuestionSuccess(null), 3000);
-    }, 1000);
+    setAddQuestionSuccess('Question added successfully!');
+    setNewQuestion({ title: '', difficulty: 'Easy', description: '', constraints: '', testInput: '', testOutput: '' });
+    setTimeout(() => setAddQuestionSuccess(null), 3000);
+    // Re-fetch questions
+    const { data: newData } = await supabase.from('questions').select('*');
+    if (newData) setQuestions(newData);
   };
 
   const deleteQuestion = (id: string) => {
