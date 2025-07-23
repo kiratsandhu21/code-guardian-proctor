@@ -48,10 +48,16 @@ const Index = () => {
       const { data: studentData, error: studentError } = await supabase
         .from('students')
         .select('*')
-        .eq('email', loginEmail)
-        .single();
+        .eq('email', loginEmail);
 
-      if (studentError || !studentData) {
+      if (studentError) {
+        console.error('Database query error:', studentError);
+        setError('Database connection error. Please check if Supabase is properly connected.');
+        setIsLoading(false);
+        return;
+      }
+
+      if (!studentData || studentData.length === 0) {
         setError('User not found. Please register first or check your email.');
         setIsLoading(false);
         return;
